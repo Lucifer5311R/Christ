@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Convergence 2025 - Interactive Map</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --indigo-600: #4f46e5;
+            --indigo-400: #818cf8;
+            --indigo-200: #c7d2fe;
+            --slate-800: #1f2937;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            overscroll-behavior: none;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }
+        .dark body {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        }
+
+        /* Animations */
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.45); }
+            50% { transform: scale(1.03); box-shadow: 0 0 0 12px rgba(79, 70, 229, 0); }
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Map Styling */
+        .campus-map .location {
+            transition: transform 0.2s ease, filter 0.2s ease;
+            cursor: pointer;
+            outline: none;
+        }
+        .campus-map .location .building-shape {
+            fill: url(#buildingGradient);
+            stroke: var(--indigo-600);
+            stroke-width: 2;
+            filter: url(#dropShadow);
+            vector-effect: non-scaling-stroke;
+        }
+        .campus-map .location:hover .building-shape {
+            fill: url(#buildingGradientHover);
+            transform: translateY(-2px);
+        }
+        .campus-map .location:focus .building-shape,
+        .campus-map .location.active .building-shape {
+            stroke: var(--indigo-200);
+            animation: pulse 1.6s infinite;
+        }
+        .campus-map .map-label, .campus-map .static-label {
+            font-size: 14px;
+            font-weight: 800;
+            fill: #ffffff;
+            pointer-events: none;
+            text-anchor: middle;
+            paint-order: stroke;
+            stroke: #312e81;
+            stroke-width: 3.5px;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .campus-map .path-label {
+            font-size: 11px;
+            font-weight: 700;
+            fill: #475569;
+            pointer-events: none;
+            text-anchor: middle;
+        }
+        .dark .campus-map .path-label { fill: #94a3b8; }
+
+        /* Connectors */
+        .connector-bg { stroke: #d1d5db; }
+        .dark .connector-bg { stroke: #475569; }
+        .connector-fg { stroke: #f3f4f6; }
+        .dark .connector-fg { stroke: #64748b; }
+
+        /* Modal */
+        .modal-backdrop {
+            position: fixed; inset: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(8px);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 50;
+            opacity: 0; pointer-events: none; transition: opacity 0.25s ease;
+        }
+        .modal-backdrop.show { opacity: 1; pointer-events: auto; animation: fadeIn 0.25s forwards; }
+        .modal-content {
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            border-radius: 1.25rem;
+            box-shadow: 0 12px 38px rgba(2, 6, 23, 0.25);
+            transform: translateY(6px);
+            transition: transform 0.25s ease;
+        }
+        .modal-backdrop.show .modal-content { transform: translateY(0); }
+        .dark .modal-content {
+            background: rgba(30, 41, 59, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        /* Reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            .campus-map .location.active .building-shape,
+            .campus-map .location:focus .building-shape { animation: none; }
+        }
+    </style>
+</head>
+<body class="dark:bg-slate-900">
+    <div class="container mx-auto p-4 md:p-8 max-w-5xl">
+        <header class="text-center mb-6">
+            <h1 class="text-4xl md:text-5xl font-extrabold text-indigo-600 dark:text-indigo-400 tracking-tight">CONVERGENCE 2025</h1>
+            <p class="text-lg text-slate-700 dark:text-slate-300 mt-2">Interactive Campus Map</p>
+            <p class="text-sm text-slate-500 mt-1">Click or press Enter on a location to see events.</p>
+        </header>
+
+        <div id="map-container" class="relative w-full bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-2xl shadow-xl p-4 md:p-6 overflow-hidden border border-white/30">
+            <!-- Legend -->
+            <div class="absolute top-4 right-4 bg-white/80 dark:bg-slate-900/70 text-slate-700 dark:text-slate-200 shadow-lg rounded-xl px-3 py-2 text-xs font-semibold flex gap-3 items-center">
+                <span class="inline-flex items-center gap-1">
+                    <span class="inline-block w-3 h-3 rounded-sm" style="background:#a5b4fc; border:1px solid #4f46e5"></span> Building
+                </span>
+                <span class="inline-flex items-center gap-1">
+                    <span class="inline-block w-3 h-3 rounded-full bg-indigo-500"></span> You
+                </span>
+                <span class="inline-flex items-center gap-1">
+                    <span class="inline-block w-3 h-0.5 bg-slate-300"></span> Connector
+                </span>
+            </div>
+
+            <svg id="campus-map" class="campus-map w-full h-auto" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Interactive campus map">
+                <!-- SVG Definitions -->
+                <defs>
+                    <pattern id="grass" patternUnits="userSpaceOnUse" width="20" height="20">
+                        <rect width="20" height="20" fill="#a7f3d0" />
+                        <circle cx="5" cy="5" r="2" fill="#4ade80" opacity="0.3"/>
+                        <circle cx="15" cy="15" r="1" fill="#22c55e" opacity="0.28"/>
+                    </pattern>
+                    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur in="SourceAlpha" stdDeviation="3.2"/>
+                        <feOffset dx="4" dy="4" result="offsetblur"/>
+                        <feComponentTransfer>
+                            <feFuncA type="linear" slope="0.45"/>
+                        </feComponentTransfer>
+                        <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+                    </filter>
+                    <linearGradient id="buildingGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#a5b4fc" />
+                        <stop offset="100%" style="stop-color:#818cf8" />
+                    </linearGradient>
+                    <linearGradient id="buildingGradientHover" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#818cf8" />
+                        <stop offset="100%" style="stop-color:#6366f1" />
+                    </linearGradient>
+                </defs>
+
+                <!-- Background -->
+                <rect x="0" y="0" width="800" height="600" fill="url(#grass)"/>
+
+                <!-- Main Path (dual stroke for depth) -->
+                <path d="M 400 600 V 60" stroke="#cbd5e1" stroke-width="20" fill="none" class="dark:stroke-slate-700" />
+                <path d="M 400 600 V 60" stroke="#f8fafc" stroke-width="12" fill="none" class="dark:stroke-slate-500" />
+
+                <!-- Connectors (to building edges, with subtle endpoints) -->
+                <!-- Left connectors to right edges at x=200 -->
+                <g stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M 400 380 H 200" class="connector-bg" stroke-width="10" fill="none" />
+                    <path d="M 400 380 H 200" class="connector-fg" stroke-width="6" fill="none" />
+
+                    <path d="M 400 148 H 200" class="connector-bg" stroke-width="10" fill="none" />
+                    <path d="M 400 148 H 200" class="connector-fg" stroke-width="6" fill="none" />
+
+                    <path d="M 400 70 H 200" class="connector-bg" stroke-width="10" fill="none" />
+                    <path d="M 400 70 H 200" class="connector-fg" stroke-width="6" fill="none" />
+
+                    <!-- Right connectors to left edges (x=550 for main right buildings, x=450 for stalls) -->
+                    <path d="M 400 550 H 550" class="connector-bg" stroke-width="10" fill="none" />
+                    <path d="M 400 550 H 550" class="connector-fg" stroke-width="6" fill="none" />
+
+                    <path d="M 400 470 H 550" class="connector-bg" stroke-width="10" fill="none" />
+                    <path d="M 400 470 H 550" class="connector-fg" stroke-width="6" fill="none" />
+
+                    <path d="M 400 385 H 550" class="connector-bg" stroke-width="10" fill="none" />
+                    <path d="M 400 385 H 550" class="connector-fg" stroke-width="6" fill="none" />
+
+                    <path d="M 400 285 H 550" class="connector-bg" stroke-width="10" fill="none" />
+                    <path d="M 400 285 H 550" class="connector-fg" stroke-width="6" fill="none" />
+
+                    <path d="M 400 212 H 450" class="connector-bg" stroke-width="10" fill="none" />
+                    <path d="M 400 212 H 450" class="connector-fg" stroke-width="6" fill="none" />
+
+                    <!-- End dots -->
+                    <circle cx="200" cy="380" r="3.5" fill="#94a3b8" />
+                    <circle cx="200" cy="148" r="3.5" fill="#94a3b8" />
+                    <circle cx="200" cy="70" r="3.5" fill="#94a3b8" />
+                    <circle cx="550" cy="550" r="3.5" fill="#94a3b8" />
+                    <circle cx="550" cy="470" r="3.5" fill="#94a3b8" />
+                    <circle cx="550" cy="385" r="3.5" fill="#94a3b8" />
+                    <circle cx="550" cy="285" r="3.5" fill="#94a3b8" />
+                    <circle cx="450" cy="212" r="3.5" fill="#94a3b8" />
+                </g>
+
+                <!-- Static Labels -->
+                <text x="400" y="590" class="path-label font-bold">MAIN GATE</text>
+
+                <!-- "You are here" marker -->
+                <g transform="translate(400, 560)">
+                    <circle cx="0" cy="0" r="8" fill="#4f46e5" stroke="white" stroke-width="2">
+                        <animate attributeName="r" dur="1.5s" values="8;12;8" repeatCount="indefinite" />
+                        <animate attributeName="opacity" dur="1.5s" values="1;0.5;1" repeatCount="indefinite" />
+                    </circle>
+                    <text y="-18" text-anchor="middle" font-weight="bold" fill="#312e81" class="dark:fill-white text-xs">You Are Here</text>
+                </g>
+
+                <!-- Interactive Buildings -->
+                <!-- Left Side (bottom to top): Block 1, [empty opposite Court & Stalls], Block 2, Birds Park -->
+                <g id="block-1" class="location" data-location-name="Block 1" role="button" tabindex="0" aria-label="Block 1">
+                    <rect class="building-shape" x="50" y="340" width="150" height="80" rx="12" />
+                    <text x="125" y="386" class="map-label">Block 1</text>
+                    <title>Block 1</title>
+                </g>
+
+                <!-- Opposite Court & Stalls: keep left side empty (green space) -->
+
+                <g id="block-2" class="location" data-location-name="Block 2" role="button" tabindex="0" aria-label="Block 2">
+                    <rect class="building-shape" x="50" y="120" width="150" height="56" rx="12" />
+                    <text x="125" y="152" class="map-label">Block 2</text>
+                    <title>Block 2</title>
+                </g>
+
+                <g id="birds-park" class="location" data-location-name="Birds Park" role="button" tabindex="0" aria-label="Birds Park">
+                    <rect class="building-shape" x="50" y="40" width="150" height="60" rx="12" />
+                    <text x="125" y="78" class="map-label">Birds Park</text>
+                    <title>Birds Park</title>
+                </g>
+
+                <!-- Right Side (bottom to top): Audi, Junior, Central, Court, Stalls -->
+                <g id="audi-block" class="location" data-location-name="Audi Block" role="button" tabindex="0" aria-label="Audi Block">
+                    <rect class="building-shape" x="550" y="520" width="150" height="60" rx="12" />
+                    <text x="625" y="556" class="map-label">Audi Block</text>
+                    <title>Audi Block</title>
+                </g>
+
+                <g class="static-building">
+                    <rect x="550" y="440" width="150" height="60" rx="12" fill="#c7d2fe" class="dark:fill-slate-500" filter="url(#dropShadow)"/>
+                    <text x="625" y="476" class="static-label">Junior College</text>
+                </g>
+
+                <!-- Central opposite Block 1 -->
+                <g id="central-block" class="location" data-location-name="Central Block" role="button" tabindex="0" aria-label="Central Block">
+                    <rect class="building-shape" x="550" y="340" width="150" height="90" rx="12" />
+                    <text x="625" y="388" class="map-label">Central Block</text>
+                    <title>Central Block</title>
+                </g>
+
+                <!-- Court then Stalls (just after Central) -->
+                <g id="basketball-court" class="location" data-location-name="Basketball Court" role="button" tabindex="0" aria-label="Basketball Court">
+                    <rect class="building-shape" x="550" y="250" width="120" height="70" rx="12" />
+                    <text x="610" y="290" class="map-label">Court</text>
+                    <title>Basketball Court</title>
+                </g>
+
+                <g id="stalls" class="location" data-location-name="Stalls" role="button" tabindex="0" aria-label="Stalls">
+                    <rect class="building-shape" x="450" y="190" width="88" height="44" rx="10" />
+                    <text x="494" y="218" class="map-label">Stalls</text>
+                    <title>Stalls</title>
+                </g>
+            </svg>
+        </div>
+    </div>
+
+    <!-- Event Details Modal -->
+    <div id="event-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true">
+        <div class="modal-content w-11/12 max-w-md p-6 relative">
+            <button id="close-modal" class="absolute top-4 right-4 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition" aria-label="Close details">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <h2 id="modal-title" class="text-2xl font-bold text-indigo-600 dark:text-indigo-400 mb-4">Location</h2>
+            <div id="modal-body" class="space-y-4"></div>
+        </div>
+    </div>
+
+    <script>
+        const eventData = {
+            "block-1": [{ name: "Maths Ka Mahayudh (Prelims)", time: "12:00 PM - 12:45 PM", venue: "Room 121, 1st Floor", icon: "🏆" }],
+            "block-2": [
+                { name: "Puzzlebids (Prelims)", time: "10:00 AM - 11:00 AM", venue: "1EMS, Ground Floor", icon: "🧩" },
+                { name: "The Mathverse: Mathopoly", time: "11:30 AM - 1:00 PM", venue: "Room 723, 2nd Floor", icon: "🎲" },
+                { name: "FIFA Θ", time: "11:15 AM - 3:00 PM", venue: "Seminar Hall, Ground Floor", icon: "🎮" }
+            ],
+            "central-block": [
+                { name: "The Mathverse: Math Survival", time: "11:15 AM - 3:00 PM", venue: "Room 911, 9th Floor", icon: "🧭" },
+                { name: "The Da Vinci Dilemma", time: "11:15 AM - 12:45 PM", venue: "Sky View, 10th Floor", icon: "🎨" },
+                { name: "Gourmet Food Court", time: "All Day", venue: "Underground Floor", type: "food", icon: "🍔" }
+            ],
+            "audi-block": [
+                { name: "Puzzlebids (Final)", time: "11:15 AM - 1:00 PM", venue: "Main Auditorium, 4th Floor", icon: "🧩" },
+                { name: "Maths Ka Mahayudh (Final)", time: "1:45 PM - 3:45 PM", venue: "Main Auditorium, 4th Floor", icon: "🏆" }
+            ],
+            "birds-park": [{ name: "The Mathverse: Cracked Realities", time: "11:15 AM - 1:45 PM", venue: "Starting Point: Birds Park", icon: "🌳" }],
+            "basketball-court": [{ name: "Mathethon", time: "1:00 PM - 3:00 PM", venue: "Dharmaram Basketball Court", icon: "🏀" }],
+            "stalls": [{ name: "Gourmet Food Court", time: "All Day", venue: "Map Stalls Area", type: "food", icon: "🍔" }]
+        };
+
+        const locations = document.querySelectorAll('.location');
+        const modal = document.getElementById('event-modal');
+        const closeModalBtn = document.getElementById('close-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalBody = document.getElementById('modal-body');
+
+        function openModal(locationId, locationName) {
+            modalTitle.textContent = locationName;
+            modalBody.innerHTML = '';
+            const events = eventData[locationId];
+
+            if (events && events.length > 0) {
+                events.forEach(event => {
+                    const eventElement = document.createElement('div');
+                    const color = event.type === 'food' ? 'border-green-500' : 'border-indigo-500';
+                    eventElement.className = `bg-white/60 dark:bg-slate-700/50 p-4 rounded-xl border-l-4 ${color} flex items-start gap-3`;
+                    eventElement.innerHTML = `
+                        <div class="text-2xl leading-none">${event.icon || '📅'}</div>
+                        <div>
+                            <h3 class="font-semibold text-lg text-slate-800 dark:text-slate-100">${event.name}</h3>
+                            <p class="text-slate-600 dark:text-slate-300">${event.venue}</p>
+                            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">${event.time}</p>
+                        </div>
+                    `;
+                    modalBody.appendChild(eventElement);
+                });
+            } else {
+                modalBody.innerHTML = `<p class="text-slate-600 dark:text-slate-300">No events scheduled at this location.</p>`;
+            }
+            modal.classList.add('show');
+            modal.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeModal() {
+            modal.classList.remove('show');
+            modal.setAttribute('aria-hidden', 'true');
+            locations.forEach(loc => loc.classList.remove('active'));
+        }
+
+        locations.forEach(location => {
+            location.addEventListener('click', () => {
+                locations.forEach(loc => loc.classList.remove('active'));
+                location.classList.add('active');
+                openModal(location.id, location.dataset.locationName);
+            });
+            location.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    locations.forEach(loc => loc.classList.remove('active'));
+                    location.classList.add('active');
+                    openModal(location.id, location.dataset.locationName);
+                }
+            });
+        });
+
+        closeModalBtn.addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+    </script>
+</body>
+</html>
